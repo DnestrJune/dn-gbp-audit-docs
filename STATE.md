@@ -13,17 +13,19 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
 
 ## 2. Deployed
 
-- Worker commit: `39065a6`, from `GET https://dn-gbp-audit.dnestrjune.workers.dev/health`
-  (also reports `engineVersion: 2`). MAIN IS AHEAD OF IT: `ENGINE_VERSION` is 3 on main
-  and the deploy has not been run, so the deployed Worker still writes version-2 rows.
+- Worker commit: `9ec1206`, from `GET https://dn-gbp-audit.dnestrjune.workers.dev/health`
+  (also reports `engineVersion: 3`). Deployed 2026-08-19 21:16 UTC, after PR #53 merged.
 - That commit is the tip of `main`, so yes, it is contained in main.
+- The rollout is not instant: `/health` served the previous commit for about 30 seconds
+  after `npm run deploy` returned, then every call since has been the new one. A single
+  stale reply straight after a deploy is propagation, not a failed deploy.
 - Frontend reaches production through the Cloudflare Pages dashboard integration on the
   `dn-gbp-audit` Pages project; a push builds and deploys, observed green on this branch.
   `https://dn-gbp-audit.pages.dev` serves
   `workerBase:"https://dn-gbp-audit.dnestrjune.workers.dev"`, so
   `NUXT_PUBLIC_WORKER_BASE` is set on the project — `frontend/nuxt.config.ts:56` ships an
   empty default on purpose, so an unset variable fails loudly rather than falling back.
-- Checked 2026-08-18.
+- Checked 2026-08-19.
 
 ## 3. ENGINE_VERSION
 
@@ -59,9 +61,6 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
   recomputes a stored row. Measured 2026-08-18: 32 rows at 2, 16 at 1, 55 with no
   `engineVersion` in `result_json`. Any share link opens a page with no figures on it
   until that venue is audited again.
-- The deployed Worker is at `ENGINE_VERSION` 2 and main is at 3, so a run against
-  production still stores a row the deployed frontend refuses. `npm run deploy` is owed;
-  it was deliberately not run with this change.
 - No source exposes the owner-written description. `descriptionPresent`
   (`src/engine/completeness.ts:56`) reads `na` on all 103 stored audits — checked against
   the D1 rows, not assumed — so completeness is measured over 6 checks and never 7.
