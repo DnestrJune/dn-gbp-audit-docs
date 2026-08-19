@@ -52,10 +52,28 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
   `claude/pr-49-reviews-nesting-buildbrief-lyr1mi`, 6 commits ahead of main, opened
   2026-08-19. One read-only endpoint, a pure mapper, and `scripts/brief-dry-run.ts`; no
   engine change and no migration.
+- PR #52 (draft) — "Peer review velocity over the venue's own window", branch
+  `claude/peer-review-velocity-window-pcpnxo`, opened 2026-08-19. Engine and storage
+  only; nothing renders. Migration 0011 is ALREADY APPLIED to remote D1 — it is
+  additive and nullable, so the deployed Worker is unaffected by it and does not write
+  the column. Main is merged in as of 2026-08-19, which changes what the peer rows say:
+  they go through `windowedCountDraft`, so under version 3's coverage rule a neighbour
+  with few reviews comes back RELIABLE instead of as a floor. Only a peer that truncated
+  or returned nothing carries a note now. The branch does not move `ENGINE_VERSION`; it
+  inherits 3.
 - No other remote branch has a commit that is not on main.
 
 ## 5. Known defects
 
+- `reputation.peerReviewVelocity` and `audits.peer_review_velocity_json` are written and
+  nothing reads either. Deliberate — rendering was out of scope for PR #52 — but until
+  something draws them, the three peer fetches on every benchmarked audit are spend with
+  no reader. They are also the only part of an audit whose cost scales with somebody
+  else's review count.
+- No stored `benchmark_peers_json` row carries `primaryType`. The field is copied onto
+  `BenchmarkPeer` from PR #52 forward, so a filter or grouping on it would mean one thing
+  on a new audit and another on an old one. Do not write one until enough audits carry
+  it; there is no backfill, because re-calling Places returns today's types.
 - ALL 103 stored audits are now dark at the version gate
   (`frontend/app/lib/report.ts:106`), because `ENGINE_VERSION` moved to 3 and nothing
   recomputes a stored row. Measured 2026-08-18: 32 rows at 2, 16 at 1, 55 with no
@@ -137,6 +155,9 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
 ## 6. Data on record
 
 - 103 rows in the remote D1 `audits` table, created 2026-07-28 to 2026-08-15.
+- `peer_review_velocity_json` (migration 0011, applied 2026-08-19) is NULL on all 103.
+  No backfill is possible: re-fetching a neighbour today would measure the last 180 days
+  from today, not the 180 days the stored audit describes.
 - No stored row may be shared with an owner: none is at `engineVersion` 3, so all 103
   render with no figures, and their stored values were computed under a shape the current
   report does not accept.
@@ -159,4 +180,6 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
 
 ## 8. Last updated
 
-2026-08-19, written against commit `7c6a0aa`.
+2026-08-19, written against commit `7c6a0aa`, amended on
+`claude/peer-review-velocity-window-pcpnxo` for PR #52, and again after merging
+`main` at `c3fc61b` (engine version 3) into that branch.
