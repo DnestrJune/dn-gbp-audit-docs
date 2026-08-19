@@ -37,6 +37,11 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
 - PR #40 (draft) — "Add decision record 2026-08-08__dn-gbp-audit__decisions.md", branch
   `claude/dn-gbp-audit-decisions-x13drm`, 1 commit ahead of main, 26 behind, opened
   2026-08-12, untouched since.
+- PR #49 (draft) — "Add GET /api/outreach-brief/:auditId", branch
+  `claude/d1-audit-schema-types-d2zgs7`, mirrored to
+  `claude/pr-49-reviews-nesting-buildbrief-lyr1mi`, 6 commits ahead of main, opened
+  2026-08-19. One read-only endpoint, a pure mapper, and `scripts/brief-dry-run.ts`; no
+  engine change and no migration.
 - No other remote branch has a commit that is not on main.
 
 ## 5. Known defects
@@ -57,6 +62,22 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
   windowed metric, the star spread, the monthly series and the latency bands then
   describe the newest 90 reviews only. The engine marks this `reviewsTruncated`; a
   truncated audit is not fit to send to an owner.
+- `newReviewsLast90Days` can never be reliable, so it is null on every stored row.
+  `windowedReliability` (`src/engine/reputation.ts:188`) requires
+  `reviewWindowDays >= 180`, and `summariseReviews`
+  (`src/adapters/apifyReviews.ts:244`) sets that to `min(age of the oldest review
+  returned, 180)` — which reaches 180 only when the fetch came back EMPTY, and an empty
+  fetch is `noReviews` at `src/engine/reputation.ts:187`. The two conditions exclude each
+  other by construction. Measured 2026-08-19 across all 32 `engineVersion` 2 rows: 12
+  have a 180-day window and all 12 read 0 reviews; the other 20 read reviews and all have
+  a window under 180. The metric is `suppressed` on every audit, and
+  the outreach brief NO LONGER EXPOSES IT AT ALL — a permanently-null field in a contract
+  read by a composing model is a sentence waiting to be written about it, and
+  `test/worker/outreach-brief.test.ts` pins the exact key set of `reviews.analysed` so it
+  cannot come back quietly. The metric still appears in the brief's `suppressed` list
+  under its own id, which is where a measurement we declined to make belongs. The fix is
+  an engine change and a version decision, not a threshold tweak; do not re-add the field
+  to the brief before that lands.
 - Apify returns owner responses dated before the review they answer — observed 4 of 96 on
   one venue, by up to 613 days (`src/adapters/apifyReviews.ts:156`). The adapter drops the
   date and keeps the reply, so those pairs land in `answeredUndated` and carry no delay
