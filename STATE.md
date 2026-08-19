@@ -14,7 +14,8 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
 ## 2. Deployed
 
 - Worker commit: `39065a6`, from `GET https://dn-gbp-audit.dnestrjune.workers.dev/health`
-  (also reports `engineVersion: 2`).
+  (also reports `engineVersion: 2`). MAIN IS AHEAD OF IT: `ENGINE_VERSION` is 3 on main
+  and the deploy has not been run, so the deployed Worker still writes version-2 rows.
 - That commit is the tip of `main`, so yes, it is contained in main.
 - Frontend reaches production through the Cloudflare Pages dashboard integration on the
   `dn-gbp-audit` Pages project; a push builds and deploys, observed green on this branch.
@@ -26,8 +27,15 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
 
 ## 3. ENGINE_VERSION
 
-- Value: `2`.
-- Defined at `src/engine/version.ts:78`.
+- Value: `3`.
+- Defined at `src/engine/version.ts:101`.
+- Moved to 3 for the meaning of `meta.reviewWindowDays`: it used to carry how far back
+  the review set REACHED and now carries how far back the fetch could SEE. Nineteen of
+  the 32 stored version-2 rows are complete fetches whose windowed counts were marked
+  `windowShorterThanMetric` because the venue has no older reviews, and the report said
+  of them "counted over the last 171 days, which is as far back as the reviews reach" —
+  a number that was never searched, printed to tell an owner to discount a figure that
+  needed no discounting.
 - Bump rule: bump only when a record already stored would render a FALSE STATEMENT about
   the venue under the new code — not when code changes, and not when the new code would
   merely have measured the venue differently.
@@ -46,10 +54,14 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
 
 ## 5. Known defects
 
-- 71 of the 103 stored audits do not carry `engineVersion` 2, so the version gate at
-  `frontend/app/lib/report.ts:106` renders them dark. Measured 2026-08-18: 32 rows at 2,
-  16 at 1, 55 with no `engineVersion` in `result_json`. Any share link created before an
-  audit was re-run opens a page with no figures on it.
+- ALL 103 stored audits are now dark at the version gate
+  (`frontend/app/lib/report.ts:106`), because `ENGINE_VERSION` moved to 3 and nothing
+  recomputes a stored row. Measured 2026-08-18: 32 rows at 2, 16 at 1, 55 with no
+  `engineVersion` in `result_json`. Any share link opens a page with no figures on it
+  until that venue is audited again.
+- The deployed Worker is at `ENGINE_VERSION` 2 and main is at 3, so a run against
+  production still stores a row the deployed frontend refuses. `npm run deploy` is owed;
+  it was deliberately not run with this change.
 - No source exposes the owner-written description. `descriptionPresent`
   (`src/engine/completeness.ts:56`) reads `na` on all 103 stored audits — checked against
   the D1 rows, not assumed — so completeness is measured over 6 checks and never 7.
@@ -62,22 +74,30 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
   windowed metric, the star spread, the monthly series and the latency bands then
   describe the newest 90 reviews only. The engine marks this `reviewsTruncated`; a
   truncated audit is not fit to send to an owner.
-- `newReviewsLast90Days` can never be reliable, so it is null on every stored row.
-  `windowedReliability` (`src/engine/reputation.ts:188`) requires
-  `reviewWindowDays >= 180`, and `summariseReviews`
-  (`src/adapters/apifyReviews.ts:244`) sets that to `min(age of the oldest review
-  returned, 180)` — which reaches 180 only when the fetch came back EMPTY, and an empty
-  fetch is `noReviews` at `src/engine/reputation.ts:187`. The two conditions exclude each
-  other by construction. Measured 2026-08-19 across all 32 `engineVersion` 2 rows: 12
-  have a 180-day window and all 12 read 0 reviews; the other 20 read reviews and all have
-  a window under 180. The metric is `suppressed` on every audit, and
-  the outreach brief NO LONGER EXPOSES IT AT ALL — a permanently-null field in a contract
-  read by a composing model is a sentence waiting to be written about it, and
+- `newReviewsLast90Days` was null on every stored row and is not any more. It could not
+  be reliable while `windowedReliability` wanted `reviewWindowDays >= 180` and
+  `summariseReviews` reported the reach of the set, which touched 180 only on an EMPTY
+  fetch, which is `noReviews`. `summariseReviews`
+  (`src/adapters/apifyReviews.ts:264`) now reports COVERAGE — the full window unless the
+  cap cut the fetch off — so any complete non-empty fetch carries the metric. Measured
+  2026-08-19 across all 32 stored `engineVersion` 2 rows, before the fix: 12 have a
+  180-day window and all 12 read 0 reviews; of the other 20, 19 are complete fetches that
+  become reliable and 1 is truncated and stays unreliable. Nothing recomputes those rows;
+  they are dark at the version gate and only a re-run carries the fix.
+  The outreach brief STILL DOES NOT EXPOSE THE FIELD, and the reason is now the name
+  rather than the value: the id says 90 over a window of 180.
   `test/worker/outreach-brief.test.ts` pins the exact key set of `reviews.analysed` so it
-  cannot come back quietly. The metric still appears in the brief's `suppressed` list
-  under its own id, which is where a measurement we declined to make belongs. The fix is
-  an engine change and a version decision, not a threshold tweak; do not re-add the field
-  to the brief before that lands.
+  cannot come back quietly, and the metric appears in the brief's `suppressed` list under
+  its own id. Adding it back is a naming decision.
+- `windowShorterThanMetric` is no longer reachable from an Apify fetch. A fetch that was
+  not cut off covers the full window, and one that was is `sampleTruncated` —
+  `windowedReliability` (`src/engine/reputation.ts:203`) checks the cap before the
+  window. The note, and the frontend coverage sentence that renders it
+  (`reviewsReachBack`, `periodBaseShort`, `namedWindowDays`), remain live only for a
+  caller that supplies a `reviewWindowDays` of its own; the engine fixtures
+  `reviews-mid-window.json` and `test/reputation.test.ts` still exercise that path. Both
+  sentences were reworded to name the period searched rather than the age of the oldest
+  review, which is what the number now means.
 - Apify returns owner responses dated before the review they answer — observed 4 of 96 on
   one venue, by up to 613 days (`src/adapters/apifyReviews.ts:156`). The adapter drops the
   date and keeps the reply, so those pairs land in `answeredUndated` and carry no delay
@@ -118,9 +138,9 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
 ## 6. Data on record
 
 - 103 rows in the remote D1 `audits` table, created 2026-07-28 to 2026-08-15.
-- The 71 rows not at `engineVersion` 2 must not be shared with an owner: they render
-  with no figures, and their stored values were computed under a shape the current report
-  does not accept.
+- No stored row may be shared with an owner: none is at `engineVersion` 3, so all 103
+  render with no figures, and their stored values were computed under a shape the current
+  report does not accept.
 - As of 2026-08-19, no audit link has been sent to any business owner.
 - Rows carry venue name, address, phone and Maps URL for real businesses — real contact
   data, not fixtures.
