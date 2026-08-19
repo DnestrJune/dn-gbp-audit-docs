@@ -97,6 +97,20 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
   to a supermarket's `types`, so `foodServiceVerdict` answers `'yes'` for supermarkets and
   grocery stores. Left in place deliberately: the consequence today is menu wording on the
   fixes list for a venue outside the target segment, not a false claim about the venue.
+- The per-peer review floor is applied at write time only, so the 32 stored `engineVersion`
+  2 rows still carry a benchmark computed without it. `buildBenchmark`
+  (`src/adapters/placesNearby.ts`) now drops a peer under `MIN_PEER_REVIEWS` (5) from the
+  medians and the rank and keeps its row in the list marked `inSample: false`; nothing
+  recomputes a stored row. Measured 2026-08-19 across those 32: none falls under
+  `BENCHMARK_MIN_SAMPLE` at a floor of 5, review-count rank moves in 1, rating rank moves
+  in 14 — 11 of them by two positions or more. Those ranks are true of the sample each
+  audit measured and remain checkable against the peer list stored beside them, which is
+  why `ENGINE_VERSION` did not move; they are not the rank the same venue would get today.
+  A re-run is the only thing that closes the gap.
+- `MIN_PEER_REVIEWS` lives in `src/worker/outreachBrief.ts` and `src/adapters/placesNearby.ts`
+  imports it from there, which points an adapter at a worker module. One number for one
+  rule was the stronger constraint; the constant belongs in `src/config/audit.ts` and both
+  sides should import it from there once something else touches that file.
 - `src/strings/ro.ts` is a first-pass translation not reviewed by a native speaker, and
   `frontend/app/lib/strings.ts` was written to the same standard. The key set is complete
   and test-enforced; the wording is not signed off.
@@ -126,4 +140,4 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
 
 ## 8. Last updated
 
-2026-08-18, written against commit `39065a6`.
+2026-08-19, written against commit `7c6a0aa`.
