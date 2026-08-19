@@ -61,15 +61,22 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
   with few reviews comes back RELIABLE instead of as a floor. Only a peer that truncated
   or returned nothing carries a note now. The branch does not move `ENGINE_VERSION`; it
   inherits 3.
+- Branch `claude/peer-review-velocity-render-kuolws`, opened 2026-08-19 off `9ca4030`.
+  Frontend only: the full report draws `reputation.peerReviewVelocity` on the
+  `newReviewsLast90Days` row. No engine change, no migration, no share-card change, and
+  it does not move `ENGINE_VERSION` — a stored row renders the same page it did before,
+  because the field it would need is NULL on all 103.
 - No other remote branch has a commit that is not on main.
 
 ## 5. Known defects
 
-- `reputation.peerReviewVelocity` and `audits.peer_review_velocity_json` are written and
-  nothing reads either. Deliberate — rendering was out of scope for PR #52 — but until
-  something draws them, the three peer fetches on every benchmarked audit are spend with
-  no reader. They are also the only part of an audit whose cost scales with somebody
-  else's review count.
+- `reputation.peerReviewVelocity` is now read by the full report and by nothing else.
+  `buildPeerVelocity` (`frontend/app/lib/report.ts`) draws it on the
+  `newReviewsLast90Days` row, beside the venue's own count over the same window; the
+  share card does not carry it, which is a separate selection decision. Nothing reads
+  `audits.peer_review_velocity_json` — the report goes through `result_json` — so the
+  column is still written and unread. No stored row renders the block: all 103 carry
+  NULL, and the field is what suppresses it.
 - No stored `benchmark_peers_json` row carries `primaryType`. The field is copied onto
   `BenchmarkPeer` from PR #52 forward, so a filter or grouping on it would mean one thing
   on a new audit and another on an old one. Do not write one until enough audits carry
@@ -181,5 +188,7 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
 ## 8. Last updated
 
 2026-08-19, written against commit `7c6a0aa`, amended on
-`claude/peer-review-velocity-window-pcpnxo` for PR #52, and again after merging
-`main` at `c3fc61b` (engine version 3) into that branch.
+`claude/peer-review-velocity-window-pcpnxo` for PR #52, again after merging
+`main` at `c3fc61b` (engine version 3) into that branch, and again on
+`claude/peer-review-velocity-render-kuolws` for the full report's rendering of
+`peerReviewVelocity`. That branch does not move `ENGINE_VERSION`; it inherits 3.
