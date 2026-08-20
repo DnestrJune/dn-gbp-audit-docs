@@ -189,7 +189,7 @@ Tests: `npx vitest run --reporter=dot`
 Frontend typecheck: `cd frontend && npm run typecheck`
 Frontend test typecheck: `cd frontend && npm run typecheck:test`
 Frontend tests: `cd frontend && npx vitest run --reporter=dot`
-Frontend build: `cd frontend && npx nuxi generate`
+Frontend build: `cd frontend && npm run generate`
 Deploy: `npm run deploy`, never bare `wrangler deploy` — the bare command loses the commit stamp and `/health` then reports `unknown`.
 
 Run the typecheck before the test suite. It is far cheaper and catches most breakage.
@@ -207,7 +207,15 @@ never sees `frontend/test`. The frontend has its own config and its own tests un
 strings still passes.
 
 `Frontend build` is `nuxi generate` against an empty `NUXT_PUBLIC_WORKER_BASE`, checking
-that the bundle compiles, not that it points anywhere.
+that the bundle compiles, not that it points anywhere. `npm run generate` runs it at the
+default log level into `frontend/nuxt-generate.log` (gitignored by the root `*.log`) and
+prints only the `WARN` and `ERROR` lines; a failing build dumps the whole log and exits
+non-zero. `generate:loud` is the plain command when you want the build output itself.
+
+The default log level is the point of it. `--logLevel=silent` would cut 70 lines to 21 on
+its own, but it also swallows Vite's warn-level lines — an `import 'node:fs'` reaching the
+client bundle warns at that level and exits 0, which is a build that passes here and
+breaks in the browser.
 
 Never run the full suite with the default reporter. Its output is several hundred lines
 and lands in context in full. On failures, re-run only the failing file with the default
