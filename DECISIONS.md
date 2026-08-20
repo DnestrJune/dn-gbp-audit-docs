@@ -85,9 +85,52 @@ input, no check, no metric, no field of `result_json`, and no report rendering. 
 stored record renders exactly the page it rendered before. A bump would take all 111 stored
 audits dark to record a fact about our own outreach, which is the trade the rule exists to
 refuse.
+**A lost race answers 409 with the contact state already applied.** The batch is atomic and
+cannot abort part way, so a `POST /outreach` that loses the race on the write-once guard has
+already applied the contact-state statement that shared its batch. The ordinary case is
+caught by a read before the batch; this is the residue — two operators recording the same
+send in the same instant. Setting a contact state twice is harmless, and the alternative was
+reporting a write the database refused. One operator, so it has never happened.
 **Reversal condition:** the moment a question needs the state of a venue AS AT a particular
 audit — "did the venues that were already clients get a different reply rate" — the state
 belongs on the pair and this shape cannot answer it.
+
+## 2026-08-19 — `summariseReviews` reports coverage, and the brief still suppresses the metric
+**Decided:** `summariseReviews` (`src/adapters/apifyReviews.ts:264`) sets
+`meta.reviewWindowDays` to how far back the fetch could SEE — the full window unless the cap
+cut it off — rather than how far back the returned set reaches. `newReviewsLast90Days`
+therefore carries a value on any complete non-empty fetch. The outreach brief still does not
+expose it and lists it in `suppressed` under its own id (`src/worker/outreachBrief.ts:428`).
+**Because:** under the old meaning the metric could never be reliable. `windowedReliability`
+wants `reviewWindowDays >= 180`, and a set's reach touched 180 only on an EMPTY fetch, which
+is `noReviews` — so the metric was null on every stored row. Measured across all 32 stored
+`engineVersion` 2 rows before the change: 12 have a 180-day window and all 12 read 0 reviews;
+of the other 20, 19 are complete fetches that become reliable and 1 is truncated and stays
+unreliable. Nothing recomputes those rows; only a re-run carries the fix.
+**The brief's reason is now the name, not the value.** The id says 90 over a window of 180.
+`test/worker/outreach-brief.test.ts` pins the exact key set of `reviews.analysed` so the
+metric cannot come back quietly.
+**Rejected:** exposing it in the brief under the current id, which would put a figure in
+front of an operator labelled with a period it was not counted over.
+**Reversal condition:** renaming the metric to the window it actually covers. That renames a
+`result_json` field, so the bump rule has to be applied to it in its own right.
+
+## 2026-08-19 — Apply the per-peer review floor at write time and hold ENGINE_VERSION at 3
+**Decided:** `buildBenchmark` (`src/adapters/placesNearby.ts`) drops a peer under
+`MIN_PEER_REVIEWS` (5) from the medians and the rank, keeps its row in the peer list marked
+`inSample: false`, and the constant did not move. Stored rows keep the benchmark their own
+audit computed; nothing recomputes them.
+**Because:** a stored rank is a true statement about the sample that audit measured, and the
+peer list it was computed from is stored beside it, so the figure stays checkable. It is not
+the rank the same venue would get today — a different claim, and one the report does not
+make.
+**The impact was measured before holding.** Across the 32 stored `engineVersion` 2 rows:
+none falls under `BENCHMARK_MIN_SAMPLE` at a floor of 5; review-count rank moves in 1;
+rating rank moves in 14, 11 of them by two positions or more.
+**Rejected:** bumping to darken every stored row in order to retire a rank still true of its
+own sample — the same trade the 2026-08-14 entry below refuses.
+**Reversal condition:** a peer list stored without enough of the sample to recheck the rank
+against, at which point the stored figure stops being verifiable.
 
 ## 2026-08-19 — Stop the `distance_m` overwrite without moving distance off the lead row
 **Decided:** `upsertNearbyStatements` now writes

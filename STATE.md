@@ -44,19 +44,18 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
 
 ## 4. In flight
 
+Nothing here moves `ENGINE_VERSION`; every branch inherits 3, because no stored record reads
+FALSE under any of them, which is what section 3's bump rule asks. PR #52 is the one that
+touches the engine and says in its own entry why it holds anyway.
+
 - Branch `claude/audit-response-tracking-3072qv`, opened 2026-08-20 off main. Records what
   happened after an audit was run, in two places: `nearby_venues.contact_state` +
-  `contact_state_at` (migration 0012) hold one mutable value per venue from the closed set
-  `contacted | replied | declined | client`, NULL meaning no contact recorded;
-  `audits.outreach_sent_at` + `outreach_note` (migration 0013) hold one record per run,
-  WRITE-ONCE PER FIELD: the send is recorded when the report goes out, with or without a
-  note, and the note may be filled in once afterwards when a reply arrives. Neither field
-  can be rewritten once set. `POST /outreach` writes the venue state and the audit record
-  in one batch behind the existing key gate.
-  BOTH MIGRATIONS ARE ALREADY APPLIED to remote D1 (2026-08-20) — additive and nullable,
-  so the deployed Worker is unaffected and does not write the columns. No engine change,
-  no report rendering change, and it does not move `ENGINE_VERSION`: it inherits 3. Not
-  deployed.
+  `contact_state_at` (migration 0012), one mutable value per venue; `audits.outreach_sent_at`
+  + `outreach_note` (migration 0013), one record per run, write-once per field. `POST
+  /outreach` writes both in one batch behind the existing key gate. The state vocabulary, the
+  NULL semantics and the write-once rule are in DECISIONS.md under 2026-08-20, two entries.
+  BOTH MIGRATIONS ARE ALREADY APPLIED to remote D1 (2026-08-20) — additive and nullable, so
+  the deployed Worker is unaffected and does not write the columns. Not deployed.
 - PR #40 (draft) — "Add decision record 2026-08-08__dn-gbp-audit__decisions.md", branch
   `claude/dn-gbp-audit-decisions-x13drm`, 1 commit ahead of main, 26 behind, opened
   2026-08-12, untouched since.
@@ -66,56 +65,48 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
   2026-08-19. One read-only endpoint, a pure mapper, and `scripts/brief-dry-run.ts`; no
   engine change and no migration.
 - PR #52 (draft) — "Peer review velocity over the venue's own window", branch
-  `claude/peer-review-velocity-window-pcpnxo`, opened 2026-08-19. Engine and storage
-  only; nothing renders. Migration 0011 is ALREADY APPLIED to remote D1 — it is
-  additive and nullable, so the deployed Worker is unaffected by it and does not write
-  the column. Main is merged in as of 2026-08-19, which changes what the peer rows say:
-  they go through `windowedCountDraft`, so under version 3's coverage rule a neighbour
-  with few reviews comes back RELIABLE instead of as a floor. Only a peer that truncated
-  or returned nothing carries a note now. The branch does not move `ENGINE_VERSION`; it
-  inherits 3.
+  `claude/peer-review-velocity-window-pcpnxo`, opened 2026-08-19. Engine and storage only;
+  nothing renders, which is why it inherits 3 despite touching the engine — no stored
+  record's rendering moves. Migration 0011 is ALREADY APPLIED to remote D1, additive and
+  nullable, so the deployed Worker is unaffected and does not write the column. Main is
+  merged in as of 2026-08-19, which changes what the peer rows say: they go through
+  `windowedCountDraft`, so under version 3's coverage rule a neighbour with few reviews comes
+  back RELIABLE instead of as a floor, and only a peer that truncated or returned nothing
+  carries a note now.
 - Branch `claude/peer-review-velocity-render-kuolws`, opened 2026-08-19 off `9ca4030`.
   Frontend only: the full report draws `reputation.peerReviewVelocity` on the
-  `newReviewsLast90Days` row. No engine change, no migration, no share-card change, and
-  it does not move `ENGINE_VERSION`. The claim that used to sit here — that no stored row
-  could draw the block — no longer holds: re-measured 2026-08-20, 8 of the 111 stored rows
-  carry `reputation.peerReviewVelocity` in `result_json` and would draw it, and those same
-  8 are the ones that pass the version gate. The other 103 carry NULL and render as
-  before.
+  `newReviewsLast90Days` row (`buildPeerVelocity`, `frontend/app/lib/report.ts:1980`). No
+  engine change, no migration, no share-card change. Which stored rows carry the field, and
+  so draw the block: section 6.
 - Branch `claude/share-card-complaint-text-w5a5rj`, opened 2026-08-20 off main. Frontend
   only: the share card's `negativeUnansweredCount` fact now draws the newest unanswered
-  complaint that has words, dated and clamped to 180 characters, inside the entry it
-  already had. No engine change, no migration, no new field, no change to fact selection
-  or capacity, and it does not move `ENGINE_VERSION` — the text it reads
-  (`reputation.unansweredNegatives.reviews[].text`) has been stored since the block
-  existed, and a record without the block renders the count alone as before.
+  complaint that has words, dated and clamped to 180 characters, inside the entry it already
+  had — from `reputation.unansweredNegatives.reviews[].text`, stored since the block existed.
+  No engine change, no migration, no new field, no change to fact selection or capacity; a
+  record without the block renders the count alone as before.
 - No other remote branch has a commit that is not on main.
 
 ## 5. Known defects
 
-- `reputation.peerReviewVelocity` is now read by the full report and by nothing else.
-  `buildPeerVelocity` (`frontend/app/lib/report.ts`) draws it on the
-  `newReviewsLast90Days` row, beside the venue's own count over the same window; the
-  share card does not carry it, which is a separate selection decision. Nothing reads
-  `audits.peer_review_velocity_json` — the report goes through `result_json` — so the
-  column is still written and unread. Re-measured 2026-08-20: 8 of the 111 stored rows
-  carry the field in `result_json` and would draw the block — they are exactly the 8 at
-  `engineVersion` 3, so they are also the only rows that reach the renderer at all. On the
-  other 103 the field is NULL and that is what suppresses it.
+- `reputation.peerReviewVelocity` is read by the full report and by nothing else:
+  `buildPeerVelocity` (`frontend/app/lib/report.ts:1980`) draws it on the
+  `newReviewsLast90Days` row, beside the venue's own count over the same window; the share
+  card does not carry it, which is a separate selection decision. The column
+  `audits.peer_review_velocity_json` has no consumer — `src/worker/db.ts:387` parses it onto
+  `StoredAudit.peerReviewVelocity` and nothing reads that field; the report goes through
+  `result_json`. Which stored rows carry it: section 6.
 - No stored `benchmark_peers_json` row carries `primaryType`. The field is copied onto
   `BenchmarkPeer` from PR #52 forward, so a filter or grouping on it would mean one thing
   on a new audit and another on an old one. Do not write one until enough audits carry
   it; there is no backfill, because re-calling Places returns today's types.
-- 103 of the 111 stored audits are dark at the version gate
-  (`frontend/app/lib/report.ts:106`), because `ENGINE_VERSION` moved to 3 and nothing
-  recomputes a stored row. Re-measured 2026-08-20: 8 rows at 3, 32 at 2, 16 at 1, 55 with
-  no `engineVersion` in `result_json`. The 8 at 3 were audited after the bump and render;
-  every other share link opens a page with no figures on it until that venue is audited
-  again.
-- No source exposes the owner-written description. `descriptionPresent`
-  (`src/engine/completeness.ts:56`) reads `na` on all 111 stored audits — re-measured
-  2026-08-20 against the D1 rows, not assumed — so completeness is measured over 6 checks
-  and never 7.
+- A stored audit whose `result_json` is not at `ENGINE_VERSION` 3 fails the report's version
+  gate (`producedByThisEngine`, `frontend/app/lib/report.ts:102`) and renders with no figures
+  at all; nothing recomputes a stored row. Every such share link opens a page with no figures
+  on it until that venue is audited again. The split across the 111 stored rows is in
+  section 6.
+- No source exposes the owner-written description, so `descriptionPresent`
+  (`src/engine/completeness.ts:56`) reads `na` on every audit and completeness is measured
+  over 6 checks and never 7.
 - `photos` is deliberately out of the Places field mask (`src/adapters/places.ts:167`)
   and `photoCount` comes only from the crawler's `imagesCount`
   (`src/adapters/crawlerPlaces.ts:216`). A venue the crawler misses therefore has no
@@ -125,39 +116,27 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
   windowed metric, the star spread, the monthly series and the latency bands then
   describe the newest 90 reviews only. The engine marks this `reviewsTruncated`; a
   truncated audit is not fit to send to an owner.
-- `newReviewsLast90Days` was null on every stored row and is not any more. It could not
-  be reliable while `windowedReliability` wanted `reviewWindowDays >= 180` and
-  `summariseReviews` reported the reach of the set, which touched 180 only on an EMPTY
-  fetch, which is `noReviews`. `summariseReviews`
-  (`src/adapters/apifyReviews.ts:264`) now reports COVERAGE — the full window unless the
-  cap cut the fetch off — so any complete non-empty fetch carries the metric. Measured
-  2026-08-19 across all 32 stored `engineVersion` 2 rows, before the fix: 12 have a
-  180-day window and all 12 read 0 reviews; of the other 20, 19 are complete fetches that
-  become reliable and 1 is truncated and stays unreliable. Nothing recomputes those rows;
-  they are dark at the version gate and only a re-run carries the fix.
-  The outreach brief STILL DOES NOT EXPOSE THE FIELD, and the reason is now the name
-  rather than the value: the id says 90 over a window of 180.
-  `test/worker/outreach-brief.test.ts` pins the exact key set of `reviews.analysed` so it
-  cannot come back quietly, and the metric appears in the brief's `suppressed` list under
-  its own id. Adding it back is a naming decision.
-- `windowShorterThanMetric` is no longer reachable from an Apify fetch. A fetch that was
-  not cut off covers the full window, and one that was is `sampleTruncated` —
-  `windowedReliability` (`src/engine/reputation.ts:203`) checks the cap before the
-  window. The note, and the frontend coverage sentence that renders it
-  (`reviewsReachBack`, `periodBaseShort`, `namedWindowDays`), remain live only for a
-  caller that supplies a `reviewWindowDays` of its own; the engine fixtures
-  `reviews-mid-window.json` and `test/reputation.test.ts` still exercise that path. Both
-  sentences were reworded to name the period searched rather than the age of the oldest
-  review, which is what the number now means.
+- The outreach brief does not expose `newReviewsLast90Days`, and the reason is the name
+  rather than the value: the id says 90 over a window of 180
+  (`src/worker/outreachBrief.ts:263`). The metric appears in the brief's `suppressed` list
+  under its own id, and `test/worker/outreach-brief.test.ts` pins the exact key set of
+  `reviews.analysed` so it cannot come back quietly. Adding it back is a naming decision —
+  DECISIONS.md, 2026-08-19.
+- `windowShorterThanMetric` is no longer reachable from an Apify fetch. A fetch that was not
+  cut off covers the full window, and one that was is `sampleTruncated` —
+  `windowedReliability` (`src/engine/reputation.ts:203`) checks the cap before the window.
+  The note, and the frontend coverage sentences that render it (`reviewsReachBack`,
+  `periodBaseShort`, `namedWindowDays`), remain live only for a caller that supplies a
+  `reviewWindowDays` of its own; `test/fixtures/reviews-mid-window.json` and
+  `test/reputation.test.ts` still exercise that path.
 - Apify returns owner responses dated before the review they answer — observed 4 of 96 on
   one venue, by up to 613 days (`src/adapters/apifyReviews.ts:156`). The adapter drops the
   date and keeps the reply, so those pairs land in `answeredUndated` and carry no delay
   figure. The reply is real; its timing is not recoverable.
 - `PLACE_DETAILS_USD_PER_CALL = 0.025` (`src/config/costs.ts:57`) is the least certain
-  number in the file. Published rates disagree between $25 and $40 per 1,000 depending on
-  whether our mask's amenity booleans count as Atmosphere fields. Every `placesUsd` figure
-  is understated by up to 1.6x if the higher SKU applies. Settling it needs a month of
-  Google Cloud billing.
+  number in the file: every `placesUsd` figure is understated by up to 1.6x if the higher
+  SKU applies. Which two rates disagree, why, and what settles it are in the comment above
+  the constant.
 - `distance_m` on a stored lead (`src/worker/leads.ts`) is one figure per lead where the
   quantity is per audit-lead pair: it is measured from the seed of the audit that ran the
   search. The overwrite is stopped — the first audit to see a lead now sets the distance
@@ -168,16 +147,14 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
   to a supermarket's `types`, so `foodServiceVerdict` answers `'yes'` for supermarkets and
   grocery stores. Left in place deliberately: the consequence today is menu wording on the
   fixes list for a venue outside the target segment, not a false claim about the venue.
-- The per-peer review floor is applied at write time only, so the 32 stored `engineVersion`
-  2 rows still carry a benchmark computed without it. `buildBenchmark`
-  (`src/adapters/placesNearby.ts`) now drops a peer under `MIN_PEER_REVIEWS` (5) from the
-  medians and the rank and keeps its row in the list marked `inSample: false`; nothing
-  recomputes a stored row. Measured 2026-08-19 across those 32: none falls under
-  `BENCHMARK_MIN_SAMPLE` at a floor of 5, review-count rank moves in 1, rating rank moves
-  in 14 — 11 of them by two positions or more. Those ranks are true of the sample each
-  audit measured and remain checkable against the peer list stored beside them, which is
-  why `ENGINE_VERSION` did not move; they are not the rank the same venue would get today.
-  A re-run is the only thing that closes the gap.
+- The per-peer review floor is applied at write time only, so a stored row carries the
+  benchmark its own audit computed and nothing recomputes it. `buildBenchmark`
+  (`src/adapters/placesNearby.ts`) drops a peer under `MIN_PEER_REVIEWS` (5) from the medians
+  and the rank and keeps its row in the list marked `inSample: false`. Stored ranks are true
+  of the sample each audit measured and stay checkable against the peer list beside them,
+  which is why `ENGINE_VERSION` did not move; they are not the rank the same venue would get
+  today, and a re-run is the only thing that closes the gap. The measured impact on the
+  stored rows is in DECISIONS.md, 2026-08-19.
 - `MIN_PEER_REVIEWS` lives in `src/worker/outreachBrief.ts` and `src/adapters/placesNearby.ts`
   imports it from there, which points an adapter at a worker module. One number for one
   rule was the stronger constraint; the constant belongs in `src/config/audit.ts` and both
@@ -199,13 +176,11 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
   ("din cele 21 luni cerute"). Their English twins `peerSample` and `peerShow` read
   "1 venues" at a sample of one. The share card's four counted labels were fixed;
   these were left, and none is reachable from the share view.
-
-- A `POST /outreach` that loses the race on the write-once guard answers 409 having
-  already applied the contact-state statement that shared its batch. The batch is atomic
-  and cannot abort part way, so the ordinary case is caught by a read before the batch and
-  this is the residue: two operators recording the same send in the same instant. Setting
-  a contact state twice is harmless; the alternative was reporting a write the database
-  refused. One operator, so it has never happened.
+- A `POST /outreach` that loses the race on the write-once guard answers 409 having already
+  applied the contact-state statement that shared its batch. The batch is atomic and cannot
+  abort part way, so the ordinary case is caught by a read before the batch and this is the
+  residue: two operators recording the same send in the same instant. One operator, so it has
+  never happened. Why that outcome was accepted: DECISIONS.md, 2026-08-20.
 - The report screen's outreach panel offers the contact-state chips on any audit, but
   `POST /outreach` answers 404 `lead_not_found` when the venue has no `nearby_venues` row.
   All 111 stored audits have one, but nothing enforces that — the first audit ever run in
@@ -222,17 +197,19 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
   are NULL on all 773 `nearby_venues` rows. No backfill is possible and none is needed:
   no audit link has been sent to any owner, so NULL is true of every row rather than
   merely unknown.
-- `peer_review_velocity_json` (migration 0011, applied 2026-08-19) is NULL on 103 of the
-  111 rows and carries a value on 8 — re-measured 2026-08-20. The 8 are the audits run
-  after the column existed, and they are the same 8 that sit at `engineVersion` 3.
-  No backfill is possible for the other 103: re-fetching a neighbour today would measure
-  the last 180 days from today, not the 180 days the stored audit describes.
-- 8 of the 111 stored rows are at `engineVersion` 3 and pass the report's version gate,
-  measured 2026-08-20. They are the only stored rows that render with figures, and so the
-  only ones that could be put in front of an owner. The other 103 render with no figures:
-  their stored values were computed under a shape the current report does not accept.
-  Whether any of the 8 is fit to send is a separate question this line does not answer —
-  a truncated fetch is still not fit to send, whatever version wrote it.
+- `peer_review_velocity_json` (migration 0011, applied 2026-08-19) carries a value on
+  exactly the rows audited after the column existed, which are the same 8 at `engineVersion`
+  3, and is NULL on the rest — re-measured 2026-08-20. No backfill is possible: re-fetching a
+  neighbour today would measure the last 180 days from today, not the 180 days the stored
+  audit describes.
+- Distribution by the `engineVersion` inside `result_json`, measured 2026-08-20: 8 rows at
+  3, 32 at 2, 16 at 1, and 55 with no `engineVersion` at all. This is the split every other
+  section points here for. Only the 8 at 3 pass the report's version gate, so they are the
+  only stored rows that render with figures and the only ones that could be put in front of
+  an owner; the other 103 render with no figures, their stored values having been computed
+  under a shape the current report does not accept. Whether any of the 8 is fit to send is a
+  separate question this line does not answer — a truncated fetch is still not fit to send,
+  whatever version wrote it.
 - As of 2026-08-19, no audit link has been sent to any business owner.
 - Rows carry venue name, address, phone and Maps URL for real businesses — real contact
   data, not fixtures.
@@ -250,21 +227,16 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
 - Do not run `wrangler deploy` bare; `npm run deploy` is what stamps the commit that
   `/health` reports.
 
-## 8. Last updated
+## 8. Provenance
 
-2026-08-20, amended on `claude/audit-response-tracking-3072qv` for the outreach record:
-migrations 0012 and 0013, `POST /outreach`, the fields on the read paths, and the two
-screens that write and read them. That branch does not move `ENGINE_VERSION` — no engine
-input, no check, no metric, no field of `result_json` and no report rendering changes, so
-every stored record renders the page it rendered before. The audit count, the version-gate
-split and `descriptionPresent` were re-measured against remote D1 the same day.
+Written 2026-08-20 against `88c4004`, the tip of main.
 
-Previously 2026-08-19, written against commit `7c6a0aa`, amended on
-`claude/peer-review-velocity-window-pcpnxo` for PR #52, again after merging
-`main` at `c3fc61b` (engine version 3) into that branch, and again on
-`claude/peer-review-velocity-render-kuolws` for the full report's rendering of
-`peerReviewVelocity`. That branch does not move `ENGINE_VERSION`; it inherits 3.
-Amended again on `claude/timezone-plurals-fix-wk6h98` for the UTC pin on `formatDayMonth`
-and the counted share-card labels. That branch does not move `ENGINE_VERSION` either: it
-changes only how the frontend words values it already had, and no stored record reads
-false under it.
+Sections 1, 3, 4, 5 and 7 are measured from this repository at that commit and are
+re-measurable from it. Sections 2 and 6 are not: `/health` and the remote D1 sit outside the
+repository, and nothing in a checkout says how stale their figures are. The Worker was
+checked 2026-08-19; the D1 row counts and the version distribution were measured 2026-08-20.
+
+This section is a provenance stamp, not a changelog. `.claude/commands/handoff.md` requires
+this file to be written from scratch and never edited forward, so it has no amendment history
+to record: what each in-flight branch does to `ENGINE_VERSION` is section 4, and why a past
+change did not move it is `docs/DECISIONS.md`.
