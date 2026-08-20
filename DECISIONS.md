@@ -197,15 +197,101 @@ present" is untrue about the venue every time it is read.
 showing that untrue statement.
 **Reversal condition:** none.
 
+## 2026-08-05 — Remove the 90-day rating and its delta, not just their display
+**Decided:** `ratingLast90Days` (the mean of reviews published in the last 90 days) and
+`ratingLast90DaysDelta` (that mean minus the all-time rating, signed, computed from the
+two rounded figures) are gone from the engine, not only from the render layer — no
+share fact and no action reads either id, and their supporting constants
+(`RECENT_WINDOW_DAYS`, `MIN_RECENT_REVIEWS_FOR_RATING`) and the
+`insufficientRecentReviews` note were deleted with them, `src/config/reputation.ts`
+included. Source: `7dab9e4`. `src/engine/types.ts:487-500` carries the removal note
+that survives in code, on the `ReputationMetricId` union.
+**Where this entry and `types.ts:487-500` differ:** the code comment names only
+`ratingLast90Days` and records the outcome on the venues audited so far ("null on
+every run"); it does not name `ratingLast90DaysDelta`, restate the delta's own
+definition, or name the gate constant — those details lived only in the removed
+`README.md` prose and the commit itself, so they are recorded here rather than
+nowhere.
+**Because:** the mean needed `MIN_RECENT_REVIEWS_FOR_RATING` reviews inside 90 days
+before either metric was emitted, which the venues this tool audits do not produce:
+on every real audit the row printed a dash and "not enough recent reviews" at the top
+of the section, the row the owner looks at first. A row that never has a number is
+not a quieter finding — it is a measurement the report kept promising and never made.
+**Rejected:** suppressing the row at the render layer only, while leaving
+`ratingLast90Days` / `ratingLast90DaysDelta` live in the engine. The commit is
+explicit that removal reaches past the render layer — a metric that is always null in
+practice gives no share fact and no action anything to hide.
+**Reversal condition:** review flow dense enough for `MIN_RECENT_REVIEWS_FOR_RATING`
+recent reviews to be the common case rather than the exception on the venues this tool
+audits — at which point both metrics would need reintroducing, not just their
+strings.
+
+## 2026-08-02 — Keep two Apify adapters rather than collapsing reviews into the crawler run
+**Decided:** `apifyReviews.ts` remains the review source; the crawler
+(`compass/crawler-google-places`) stays at `maxReviews: 0`. Source: `fe72008` and the
+reasoning at `README.md` under "Why there are still two Apify adapters" (moved here).
+**Because:** the crawler can return reviews in the same run, at equal fidelity — same
+field names, same values, same inverted-date quirk — for 8–13% less than a separate
+reviews run. The saving is $0.005–0.02 per audit, and the downside if the crawler's date
+boundary ever stops binding is roughly 3x on a high-review-count venue, which is the bulk
+of the target segment. Pennies of saving do not justify that exposure.
+**The open question is narrower than "does the parameter exist" — it does.**
+`reviewsStartDate` is in the crawler's input schema and takes an absolute or relative
+date, and the one measurement taken is consistent with it binding: Mugshot has 600
+reviews, was asked for 200 with a 180-day cutoff, and returned 47 without hitting the
+cap. What was never done is isolating that parameter deliberately — one run with the
+cutoff and one without, on a venue where the two answers differ unambiguously.
+**Rejected:** collapsing the two adapters now, on the strength of the one Mugshot
+measurement alone. It is consistent with the date boundary binding but does not isolate
+it, so it cannot carry a cost decision with a 3x downside behind it.
+**Reversal condition:** revisit the collapse only after the isolating experiment — one
+run with `reviewsStartDate` set and one without, on a venue where the two answers would
+visibly differ — confirms the boundary binds, and only if the per-audit saving has grown
+enough by then to be worth it.
+
 ## 2026-07-29 — Peer group is matched on the searched type, not on strict `primaryType` equality
 **Decided:** peers are the venues Google returns for the searched type. Source:
-`b680aba` and the measurement table in `README.md` under "Searched-type matching is the
-decision".
+`b680aba` and the three measurement tables below, taken on the acceptance run (moved
+here from `README.md`, formerly under "The sample is capped by count, not by distance",
+"Searched-type matching is the decision" and "Cost").
 **Because:** strict `primaryType` equality was measured on all three acceptance venues
 and moved the rating median by noise while collapsing one sample to the minimum.
 **Rejected:** strict equality, as above; an equivalence set (`cafe` ≈ `coffee_shop`) was
 deferred rather than rejected.
 **Reversal condition:** real outreach showing owners disputing their peer list.
+
+**Measured on the three acceptance venues, all at the 20-result cap**
+(`rankPreference: DISTANCE`, `maxResultCount: 20`, default radius 5000m):
+
+| venue | type | sample after exclusions | max distance |
+| --- | --- | --- | --- |
+| Caru' cu Bere (old town) | `romanian_restaurant` | 19 | 1,504 m |
+| Mugshot (Aurel Vlaicu) | `coffee_shop` | 17 | 571 m |
+| Maria Caffe (Crângași) | `cafe` | 15 | 1,078 m |
+
+The 5km radius never bound, not even in Crângași — the count cap was the binding
+constraint on all three.
+
+**Restricting the sample to peers whose own `primaryType` equals the audited venue's,
+measured and rejected:**
+
+| venue | searched type | n | rating median | restricted n | restricted median |
+| --- | --- | --- | --- | --- | --- |
+| Caru' cu Bere | `romanian_restaurant` | 19 | 4.5 | 8 | 4.4 |
+| Mugshot | `coffee_shop` | 17 | 4.7 | 11 | 4.9 |
+| Maria Caffe | `cafe` | 15 | 4.6 | 5 | 4.1 |
+
+The rating median — the number that actually goes in front of an owner — barely moves.
+4.5→4.4 and 4.7→4.9 are noise; 4.6→4.1 is an artefact of the sample collapsing to
+exactly the minimum, not a better estimate.
+
+**Measured per audit on the same run:**
+
+| venue | places | nearby | reviews | crawler | total |
+| --- | --- | --- | --- | --- | --- |
+| Caru' cu Bere | $0.025 | $0.035 | $0.12005 (200) | $0.0062 | $0.18625 |
+| Mugshot | $0.025 | $0.035 | $0.02825 (47) | $0.0062 | $0.09445 |
+| Maria Caffe | $0.025 | $0.035 | $0.00005 (0) | $0.0062 | $0.06625 |
 
 ## 2026-07-29 — The frontend's Worker base URL has an empty default, not a fallback
 **Decided:** `runtimeConfig.public.workerBase` defaults to `''` and an unset

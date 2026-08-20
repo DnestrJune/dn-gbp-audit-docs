@@ -181,6 +181,31 @@ touches the engine and says in its own entry why it holds anyway.
   abort part way, so the ordinary case is caught by a read before the batch and this is the
   residue: two operators recording the same send in the same instant. One operator, so it has
   never happened. Why that outcome was accepted: DECISIONS.md, 2026-08-20.
+- `includedTypes` matches a place's full type list rather than a peer's own
+  `primaryType`, so the benchmark sample for a `coffee_shop` search also carries bistros,
+  brunch restaurants and italian restaurants that serve coffee too. Settled, not open:
+  strict `primaryType` equality was measured on all three acceptance venues and rejected
+  — it moved the rating median by noise and collapsed one sample to the minimum
+  (DECISIONS.md, 2026-07-29). `Benchmark.category` records the searched type, not what
+  any peer came back labelled as. The live constraint this leaves is on wording: the
+  report must say "nearby venues Google also lists as `<type>`", never "nearby
+  `<type>`s".
+- The Worker has no rate limiting (`src/worker/cors.ts`, TODO comment). A leaked
+  `AUDIT_KEY` is worth an unbounded number of `/audit` calls, each spending real money
+  at Google and Apify. Accepted for one operator; it must not survive a second.
+- The comment at `src/adapters/placesNearby.ts:627-628` is wrong: it claims
+  `Benchmark.category` records "the first peer's own type rather than the query."
+  `src/worker/index.ts:380` calls `buildBenchmark` with `seed?.primaryType`, the audited
+  venue's own type used as the search query, and the doc comment on the `category`
+  parameter itself (`placesNearby.ts:509-515`) has this right: it is the type that
+  defined the peer group, not any one peer's own type. The behaviour is correct; only
+  the comment at 627-628 is stale.
+- `buildActions`' fixes-list order is ranked by consequence in five named buckets
+  (`ACTION_RANK`, `src/engine/actions.ts:102-155`), not by which stage produced the
+  item (risk, then completeness, then reputation). That grouping was deliberately
+  replaced and the code comment says so, but nothing outside this one file's comment
+  states the current rule, so it is the kind of thing a future change is likely to
+  reintroduce by accident.
 - The report screen's outreach panel offers the contact-state chips on any audit, but
   `POST /outreach` answers 404 `lead_not_found` when the venue has no `nearby_venues` row.
   All 111 stored audits have one, but nothing enforces that — the first audit ever run in

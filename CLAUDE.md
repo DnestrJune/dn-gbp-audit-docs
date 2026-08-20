@@ -60,6 +60,15 @@ Two consequences worth stating because they look like exceptions and are not:
   the share view. Different registers, one observation. A context-specific
   string that says something the neutral one does not is a bug.
 
+**The peer-group comparison must say "Nearby venues Google also lists as
+`<type>`", never "nearby `<type>`s".** The benchmark sample matches a place's
+full type list, not its primary type, so a `coffee_shop` search returns
+bistros and italian restaurants that also serve coffee. "Nearby coffee shops"
+is a claim the sample cannot support — a reader who recognises a mismatched
+venue in the list is right to distrust the whole number. The peer list is
+shown in full for the same reason: the median has to be derived from
+something the reader can check, not asserted over a sample they cannot see.
+
 The rule holds for both locales, and for anything added to the engine's own
 `src/strings/{en,ro}.ts` as well as the frontend's glue table.
 
