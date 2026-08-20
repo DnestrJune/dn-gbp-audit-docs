@@ -44,6 +44,19 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
 
 ## 4. In flight
 
+- Branch `claude/audit-response-tracking-3072qv`, opened 2026-08-20 off main. Records what
+  happened after an audit was run, in two places: `nearby_venues.contact_state` +
+  `contact_state_at` (migration 0012) hold one mutable value per venue from the closed set
+  `contacted | replied | declined | client`, NULL meaning no contact recorded;
+  `audits.outreach_sent_at` + `outreach_note` (migration 0013) hold one record per run,
+  WRITE-ONCE PER FIELD: the send is recorded when the report goes out, with or without a
+  note, and the note may be filled in once afterwards when a reply arrives. Neither field
+  can be rewritten once set. `POST /outreach` writes the venue state and the audit record
+  in one batch behind the existing key gate.
+  BOTH MIGRATIONS ARE ALREADY APPLIED to remote D1 (2026-08-20) — additive and nullable,
+  so the deployed Worker is unaffected and does not write the columns. No engine change,
+  no report rendering change, and it does not move `ENGINE_VERSION`: it inherits 3. Not
+  deployed.
 - PR #40 (draft) — "Add decision record 2026-08-08__dn-gbp-audit__decisions.md", branch
   `claude/dn-gbp-audit-decisions-x13drm`, 1 commit ahead of main, 26 behind, opened
   2026-08-12, untouched since.
@@ -64,8 +77,11 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
 - Branch `claude/peer-review-velocity-render-kuolws`, opened 2026-08-19 off `9ca4030`.
   Frontend only: the full report draws `reputation.peerReviewVelocity` on the
   `newReviewsLast90Days` row. No engine change, no migration, no share-card change, and
-  it does not move `ENGINE_VERSION` — a stored row renders the same page it did before,
-  because the field it would need is NULL on all 103.
+  it does not move `ENGINE_VERSION`. The claim that used to sit here — that no stored row
+  could draw the block — no longer holds: re-measured 2026-08-20, 8 of the 111 stored rows
+  carry `reputation.peerReviewVelocity` in `result_json` and would draw it, and those same
+  8 are the ones that pass the version gate. The other 103 carry NULL and render as
+  before.
 - Branch `claude/share-card-complaint-text-w5a5rj`, opened 2026-08-20 off main. Frontend
   only: the share card's `negativeUnansweredCount` fact now draws the newest unanswered
   complaint that has words, dated and clamped to 180 characters, inside the entry it
@@ -82,20 +98,24 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
   `newReviewsLast90Days` row, beside the venue's own count over the same window; the
   share card does not carry it, which is a separate selection decision. Nothing reads
   `audits.peer_review_velocity_json` — the report goes through `result_json` — so the
-  column is still written and unread. No stored row renders the block: all 103 carry
-  NULL, and the field is what suppresses it.
+  column is still written and unread. Re-measured 2026-08-20: 8 of the 111 stored rows
+  carry the field in `result_json` and would draw the block — they are exactly the 8 at
+  `engineVersion` 3, so they are also the only rows that reach the renderer at all. On the
+  other 103 the field is NULL and that is what suppresses it.
 - No stored `benchmark_peers_json` row carries `primaryType`. The field is copied onto
   `BenchmarkPeer` from PR #52 forward, so a filter or grouping on it would mean one thing
   on a new audit and another on an old one. Do not write one until enough audits carry
   it; there is no backfill, because re-calling Places returns today's types.
-- ALL 103 stored audits are now dark at the version gate
+- 103 of the 111 stored audits are dark at the version gate
   (`frontend/app/lib/report.ts:106`), because `ENGINE_VERSION` moved to 3 and nothing
-  recomputes a stored row. Measured 2026-08-18: 32 rows at 2, 16 at 1, 55 with no
-  `engineVersion` in `result_json`. Any share link opens a page with no figures on it
-  until that venue is audited again.
+  recomputes a stored row. Re-measured 2026-08-20: 8 rows at 3, 32 at 2, 16 at 1, 55 with
+  no `engineVersion` in `result_json`. The 8 at 3 were audited after the bump and render;
+  every other share link opens a page with no figures on it until that venue is audited
+  again.
 - No source exposes the owner-written description. `descriptionPresent`
-  (`src/engine/completeness.ts:56`) reads `na` on all 103 stored audits — checked against
-  the D1 rows, not assumed — so completeness is measured over 6 checks and never 7.
+  (`src/engine/completeness.ts:56`) reads `na` on all 111 stored audits — re-measured
+  2026-08-20 against the D1 rows, not assumed — so completeness is measured over 6 checks
+  and never 7.
 - `photos` is deliberately out of the Places field mask (`src/adapters/places.ts:167`)
   and `photoCount` comes only from the crawler's `imagesCount`
   (`src/adapters/crawlerPlaces.ts:216`). A venue the crawler misses therefore has no
@@ -180,15 +200,39 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
   "1 venues" at a sample of one. The share card's four counted labels were fixed;
   these were left, and none is reachable from the share view.
 
+- A `POST /outreach` that loses the race on the write-once guard answers 409 having
+  already applied the contact-state statement that shared its batch. The batch is atomic
+  and cannot abort part way, so the ordinary case is caught by a read before the batch and
+  this is the residue: two operators recording the same send in the same instant. Setting
+  a contact state twice is harmless; the alternative was reporting a write the database
+  refused. One operator, so it has never happened.
+- The report screen's outreach panel offers the contact-state chips on any audit, but
+  `POST /outreach` answers 404 `lead_not_found` when the venue has no `nearby_venues` row.
+  All 111 stored audits have one, but nothing enforces that — the first audit ever run in
+  a new area would have none until somebody's nearby search returned it. The panel shows
+  the Worker's error rather than hiding the control, because hiding it would need a fact
+  `StoredAudit` does not carry: it exposes the venue's STATE, which is NULL both when the
+  lead row is missing and when it exists with nothing recorded.
+
 ## 6. Data on record
 
-- 103 rows in the remote D1 `audits` table, created 2026-07-28 to 2026-08-15.
-- `peer_review_velocity_json` (migration 0011, applied 2026-08-19) is NULL on all 103.
-  No backfill is possible: re-fetching a neighbour today would measure the last 180 days
-  from today, not the 180 days the stored audit describes.
-- No stored row may be shared with an owner: none is at `engineVersion` 3, so all 103
-  render with no figures, and their stored values were computed under a shape the current
-  report does not accept.
+- 111 rows in the remote D1 `audits` table, measured 2026-08-20. Was 103 on 2026-08-19.
+- `outreach_sent_at` and `outreach_note` (migration 0013, applied 2026-08-20) are NULL on
+  all 111, and `contact_state` / `contact_state_at` (migration 0012, applied the same day)
+  are NULL on all 773 `nearby_venues` rows. No backfill is possible and none is needed:
+  no audit link has been sent to any owner, so NULL is true of every row rather than
+  merely unknown.
+- `peer_review_velocity_json` (migration 0011, applied 2026-08-19) is NULL on 103 of the
+  111 rows and carries a value on 8 — re-measured 2026-08-20. The 8 are the audits run
+  after the column existed, and they are the same 8 that sit at `engineVersion` 3.
+  No backfill is possible for the other 103: re-fetching a neighbour today would measure
+  the last 180 days from today, not the 180 days the stored audit describes.
+- 8 of the 111 stored rows are at `engineVersion` 3 and pass the report's version gate,
+  measured 2026-08-20. They are the only stored rows that render with figures, and so the
+  only ones that could be put in front of an owner. The other 103 render with no figures:
+  their stored values were computed under a shape the current report does not accept.
+  Whether any of the 8 is fit to send is a separate question this line does not answer —
+  a truncated fetch is still not fit to send, whatever version wrote it.
 - As of 2026-08-19, no audit link has been sent to any business owner.
 - Rows carry venue name, address, phone and Maps URL for real businesses — real contact
   data, not fixtures.
@@ -208,7 +252,14 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
 
 ## 8. Last updated
 
-2026-08-19, written against commit `7c6a0aa`, amended on
+2026-08-20, amended on `claude/audit-response-tracking-3072qv` for the outreach record:
+migrations 0012 and 0013, `POST /outreach`, the fields on the read paths, and the two
+screens that write and read them. That branch does not move `ENGINE_VERSION` — no engine
+input, no check, no metric, no field of `result_json` and no report rendering changes, so
+every stored record renders the page it rendered before. The audit count, the version-gate
+split and `descriptionPresent` were re-measured against remote D1 the same day.
+
+Previously 2026-08-19, written against commit `7c6a0aa`, amended on
 `claude/peer-review-velocity-window-pcpnxo` for PR #52, again after merging
 `main` at `c3fc61b` (engine version 3) into that branch, and again on
 `claude/peer-review-velocity-render-kuolws` for the full report's rendering of
