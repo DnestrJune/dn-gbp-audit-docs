@@ -165,6 +165,20 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
 - `src/strings/ro.ts` is a first-pass translation not reviewed by a native speaker, and
   `frontend/app/lib/strings.ts` was written to the same standard. The key set is complete
   and test-enforced; the wording is not signed off.
+- `formatDate` (`frontend/app/lib/format.ts`) pins no time zone and is fed two different
+  kinds of string. `hours.ts:89` passes a date-only `YYYY-MM-DD` exception date, which
+  `new Date` reads as UTC midnight and which then renders a day early at any negative
+  offset; `report.ts` passes a real instant for the baseline heading, where the ambient
+  zone is arguably right. Neither was changed. A date-only string has no instant behind
+  it, so the fix for the first is a component parse printed in UTC — the same shape as
+  `formatMonth` — and not a blanket pin on a function the second one also uses. No stored
+  audit carries an hours exception today, so nothing renders it.
+- Four Romanian glue strings in the full report put a bare number in front of a noun and
+  so miss the three-form rule `roCount` holds: `peerSample`, `peerShow` and
+  `peerMedianOnly` ("21 afaceri", wants "21 de afaceri") and the monthly-coverage line
+  ("din cele 21 luni cerute"). Their English twins `peerSample` and `peerShow` read
+  "1 venues" at a sample of one. The share card's four counted labels were fixed;
+  these were left, and none is reachable from the share view.
 
 ## 6. Data on record
 
@@ -199,3 +213,7 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
 `main` at `c3fc61b` (engine version 3) into that branch, and again on
 `claude/peer-review-velocity-render-kuolws` for the full report's rendering of
 `peerReviewVelocity`. That branch does not move `ENGINE_VERSION`; it inherits 3.
+Amended again on `claude/timezone-plurals-fix-wk6h98` for the UTC pin on `formatDayMonth`
+and the counted share-card labels. That branch does not move `ENGINE_VERSION` either: it
+changes only how the frontend words values it already had, and no stored record reads
+false under it.
