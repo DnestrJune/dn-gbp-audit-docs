@@ -66,6 +66,13 @@ owner. It grades nothing and composes no prose — the engine emits ids and valu
   `newReviewsLast90Days` row. No engine change, no migration, no share-card change, and
   it does not move `ENGINE_VERSION` — a stored row renders the same page it did before,
   because the field it would need is NULL on all 103.
+- Branch `claude/share-card-complaint-text-w5a5rj`, opened 2026-08-20 off main. Frontend
+  only: the share card's `negativeUnansweredCount` fact now draws the newest unanswered
+  complaint that has words, dated and clamped to 180 characters, inside the entry it
+  already had. No engine change, no migration, no new field, no change to fact selection
+  or capacity, and it does not move `ENGINE_VERSION` — the text it reads
+  (`reputation.unansweredNegatives.reviews[].text`) has been stored since the block
+  existed, and a record without the block renders the count alone as before.
 - No other remote branch has a commit that is not on main.
 
 ## 5. Known defects
