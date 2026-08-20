@@ -112,6 +112,7 @@ STATUS: OK | PARTIAL | FAILED
 Tests: N passed / M failed
 Types: clean | N errors
 Deploy: deployed <url> | not attempted | failed
+Watching: none | <mechanism> on <target> — requested at <where you asked>
 Blocked: <one line each, or "none">
 Needs me: <one line each, or "nothing">
 ```
@@ -128,6 +129,18 @@ exact error string. A missing data source is Blocked even if the code around
 it works.
 
 Never report OK when a required external call did not happen.
+
+Watching = anything left running after this reply that keeps acting without me
+present: a PR subscription (`subscribe_pr_activity`), a scheduled check-in
+(`send_later`, `create_trigger`), a background agent left polling. The field
+has no blank state — write `none` or name the mechanism and target, and when
+you name one, point at the sentence in this conversation that asked for it. If
+you cannot point at one, you did not have permission to arm it: cancel it
+(`unsubscribe_pr_activity`, `delete_trigger`, stop the agent) before writing
+this line, not after I ask why it's still running. This line exists because
+"I'll watch that" is a decision I make, not a default you reach for while
+finishing unrelated work — filling it in is the check, not a reminder to run
+one.
 
 ## Session start
 
@@ -166,14 +179,26 @@ Typecheck: `npx tsc --noEmit`
 Tests: `npx vitest run --reporter=dot`
 Frontend typecheck: `cd frontend && npm run typecheck`
 Frontend test typecheck: `cd frontend && npm run typecheck:test`
+Frontend tests: `cd frontend && npx vitest run --reporter=dot`
+Frontend build: `cd frontend && npx nuxi generate`
 Deploy: `npm run deploy`, never bare `wrangler deploy` — the bare command loses the commit stamp and `/health` then reports `unknown`.
 
 Run the typecheck before the test suite. It is far cheaper and catches most breakage.
 
-Both frontend commands, not just the first. `npm run typecheck` is `nuxi typecheck`,
-which compiles the program Nuxt generates and covers app code only — `frontend/test` sits
-outside it, and vitest transpiles without checking. `typecheck:test` is the one that
-compiles the fixtures, and the fixtures are what implement the worker's wire shapes.
+Both frontend typecheck commands, not just the first. `npm run typecheck` is `nuxi
+typecheck`, which compiles the program Nuxt generates and covers app code only —
+`frontend/test` sits outside it, and vitest transpiles without checking. `typecheck:test`
+is the one that compiles the fixtures, and the fixtures are what implement the worker's
+wire shapes.
+
+The root `Tests` and `Frontend tests` runs are not the same suite twice: the root
+`vitest run` uses the root `vitest.config.ts`, whose `include` is `test/**/*.test.ts`, and
+never sees `frontend/test`. The frontend has its own config and its own tests under
+`frontend/test/**/*.spec.ts` — skip the second run and a frontend that renders wrong
+strings still passes.
+
+`Frontend build` is `nuxi generate` against an empty `NUXT_PUBLIC_WORKER_BASE`, checking
+that the bundle compiles, not that it points anywhere.
 
 Never run the full suite with the default reporter. Its output is several hundred lines
 and lands in context in full. On failures, re-run only the failing file with the default
