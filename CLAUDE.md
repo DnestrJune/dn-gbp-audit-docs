@@ -121,7 +121,7 @@ STATUS: OK | PARTIAL | FAILED
 Tests: N passed / M failed
 Types: clean | N errors
 Deploy: deployed <url> | not attempted | failed
-Watching: none | <mechanism> on <target> — requested at <where you asked>
+Watching: none | <mechanism> on <target> — requested at <where you asked> | cancelled <mechanism> on <target>
 Blocked: <one line each, or "none">
 Needs me: <one line each, or "nothing">
 ```
@@ -139,17 +139,39 @@ it works.
 
 Never report OK when a required external call did not happen.
 
-Watching = anything left running after this reply that keeps acting without me
-present: a PR subscription (`subscribe_pr_activity`), a scheduled check-in
-(`send_later`, `create_trigger`), a background agent left polling. The field
-has no blank state — write `none` or name the mechanism and target, and when
-you name one, point at the sentence in this conversation that asked for it. If
-you cannot point at one, you did not have permission to arm it: cancel it
-(`unsubscribe_pr_activity`, `delete_trigger`, stop the agent) before writing
-this line, not after I ask why it's still running. This line exists because
-"I'll watch that" is a decision I make, not a default you reach for while
-finishing unrelated work — filling it in is the check, not a reminder to run
-one.
+Watching = anything that would keep acting after this reply without me present:
+a PR subscription (`subscribe_pr_activity`), a scheduled check-in (`send_later`,
+`create_trigger`), a background agent left polling.
+
+**One test, applied before the status block is written: point at the sentence in
+this conversation where I asked for this watch. If you cannot, cancel it —
+`unsubscribe_pr_activity`, `delete_trigger`, stop the agent — and then write the
+line.** Not disclose it and keep it running. Not flag it and offer to cancel.
+Cancel it, then report the cancellation: `cancelled <mechanism> on <target>`.
+
+Where the watch came from does not enter into it. A harness default that arms a
+subscription the moment you open a PR is not a request from me, and neither is a
+rule that tells you to schedule a check-in until something goes green. The only
+thing that survives the test is a sentence of mine. Disclosure is not a
+substitute for it and never was: a watch I did not ask for costs me the same
+whether or not you told me it was there.
+
+Both mechanisms are equal under this rule. An event subscription is not the
+lesser of the two for being passive — a timer wakes you on a clock and a
+subscription wakes you on someone else's push, and either way I get a reply I
+did not ask for. Do not cancel the timer and keep the subscription on the
+grounds that the subscription only fires when something happens. Neither is
+permitted without a request; both are cancelled by the same test.
+
+The cost this prevents is a run of replies that report the same unfinished
+external state — CI still running, still running, still green — each one a full
+status block, none of them work I asked for. If you find yourself writing a
+status block whose only new fact is the state of something you are watching, the
+watch should have been cancelled several replies ago.
+
+This line exists because "I'll watch that" is a decision I make, not a default
+you reach for while finishing unrelated work — filling it in is the check, not a
+reminder to run one.
 
 ## Session start
 

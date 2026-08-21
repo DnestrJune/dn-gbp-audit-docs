@@ -213,6 +213,19 @@ touches the engine and says in its own entry why it holds anyway.
   the Worker's error rather than hiding the control, because hiding it would need a fact
   `StoredAudit` does not carry: it exposes the venue's STATE, which is NULL both when the
   lead row is missing and when it exists with nothing recorded.
+- `peerSample`, `peerMedianOnly` and `peerShow` (`frontend/app/lib/strings.ts:777`,
+  `:798`, `:807`; the Romanian at `:984`, `:1005`, `:1010`) put a bare number in front of a plural noun in both locales — "17
+  venues", "17 afaceri" — where every other counted string in that file routes through
+  `roCount`. They are correct only because the peer count cannot leave 5..19: one
+  `searchNearby` call capped at `NEARBY_MAX_RESULTS = 20` (`src/config/audit.ts:125`),
+  minus the audited venue itself (`excluded.self`, `src/adapters/placesNearby.ts:531`),
+  against a floor of `BENCHMARK_MIN_SAMPLE = 5` (`src/config/audit.ts:136`) below which
+  `benchmarkAvailable` is false and the whole section is absent. 19 is the last value
+  Romanian takes without "de" and 5 is above the singular, so no reachable count is
+  wrong today. If any of those three constants moves, all three strings become wrong in
+  both locales at once — Romanian gains "20 de afaceri" at the top, English gains "1
+  venues" at the bottom. Deliberately not fixed defensively: a length budget on forms
+  nothing can emit reads as evidence the forms occur.
 
 ## 6. Data on record
 
